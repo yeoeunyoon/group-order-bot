@@ -1,0 +1,7 @@
+# Runtime: none — the demo runs on the Python standard library alone.
+
+# Dev / test:
+pytest>=8.0
+
+# Later (live mode with a real AI brain instead of the keyword matcher):
+# anthropic>=0.40
