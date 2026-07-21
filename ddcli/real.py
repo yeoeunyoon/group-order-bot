@@ -20,6 +20,7 @@ Field names come from the dd-cli `--help` docs; the `_parse_*` helpers are the
 only spots to adjust if a response shape differs in practice.
 """
 
+import html
 import json
 import os
 import re
@@ -95,7 +96,7 @@ class RealDDClient(DDClient):
         data = self._run("menu", "--store-id", str(store_id))
         return Store(
             id=str(store_id),
-            name=data.get("store_name", data.get("name", "")),
+            name=_clean(data.get("store_name", data.get("name", ""))),
             cuisine="",
             eta_minutes=0,
             delivery_fee_cents=0,
@@ -185,7 +186,7 @@ class RealDDClient(DDClient):
     def _parse_search_store(raw: dict) -> Store:
         return Store(
             id=str(raw.get("store_id", raw.get("id", ""))),
-            name=raw.get("name", raw.get("store_name", "Unknown store")),
+            name=_clean(raw.get("name", raw.get("store_name", "Unknown store"))),
             cuisine=raw.get("cuisine", ""),
             eta_minutes=int(raw.get("eta_minutes", 0) or 0),
             delivery_fee_cents=int(raw.get("delivery_fee_cents", 0) or 0),
@@ -201,15 +202,20 @@ class RealDDClient(DDClient):
         # silently dropped). TODO(modifiers): fetch options for has_modifiers items.
         return MenuItem(
             id=str(raw.get("item_id", raw.get("id", ""))),
-            name=raw.get("name", raw.get("item_name", "")),
+            name=_clean(raw.get("name", raw.get("item_name", ""))),
             price_cents=_dollars_to_cents(raw.get("price")),
-            description=raw.get("description", ""),
+            description=_clean(raw.get("description", "")),
         )
 
 
 def _as_list(data: dict, key: str) -> list:
     value = data.get(key, [])
     return value if isinstance(value, list) else []
+
+
+def _clean(text: str) -> str:
+    """Unescape HTML entities DoorDash returns (e.g. 'Soup &amp; Salad')."""
+    return html.unescape(text) if text else text
 
 
 def _dollars_to_cents(price) -> int:
