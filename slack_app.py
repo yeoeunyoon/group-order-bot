@@ -47,6 +47,9 @@ app = App(
 # One live order per thread. Key = the thread's root timestamp (its id).
 SESSIONS: dict[str, OrderSession] = {}
 
+# Optional store search hint per thread (the text after the @mention).
+QUERIES: dict[str, str] = {}
+
 # Cache Slack user id -> display name so we don't call users_info repeatedly.
 _NAME_CACHE: dict[str, str] = {}
 
@@ -78,11 +81,17 @@ def new_session() -> OrderSession:
 def open_order(event, say):
     thread_ts = event["ts"]  # replies to this message become the order's requests
     SESSIONS[thread_ts] = new_session()
+    # Text after the @mention is a store hint ("sushi", "pizza"). Optional.
+    raw = event.get("text", "")
+    query = raw.split(">", 1)[-1].strip() if ">" in raw else raw.strip()
+    if query:
+        QUERIES[thread_ts] = query
     limit = config.SPEND_LIMIT_CENTS / 100
+    hint = f" for *{query}*" if query else ""
     say(
         thread_ts=thread_ts,
         text=(
-            f":shopping_trolley: *Order open!*  (mode: {config.MODE}, "
+            f":shopping_trolley: *Order open{hint}!*  (mode: {config.MODE}, "
             f"limit: ${limit:,.2f})\n"
             "Reply in this thread with what you want — plain language is fine, "
             'e.g. "chicken burrito, no onions".\n'
@@ -90,7 +99,7 @@ def open_order(event, say):
         ),
         blocks=[
             {"type": "section", "text": {"type": "mrkdwn", "text": (
-                f":shopping_trolley: *Order open!*  _(mode: {config.MODE}, "
+                f":shopping_trolley: *Order open{hint}!*  _(mode: {config.MODE}, "
                 f"limit: ${limit:,.2f})_\n"
                 "Reply in this thread with what you want — plain language is "
                 'fine, e.g. "chicken burrito, no onions".'
@@ -136,7 +145,7 @@ def do_preview(ack, body, say, client):
         say(thread_ts=thread_ts, text="Nobody's ordered yet — reply with a request first.")
         return
     try:
-        session.plan()
+        session.plan(search_query=QUERIES.get(thread_ts))
         session.prepare()
     except (DDCliError, GuardrailError) as exc:
         say(thread_ts=thread_ts, text=f":raised_hand: Stopped before any charge: {exc}")
@@ -177,6 +186,7 @@ def do_place(ack, body, say, client):
         say(thread_ts=thread_ts, text=f":shield: Blocked: {exc}")
         return
     SESSIONS.pop(thread_ts, None)
+    QUERIES.pop(thread_ts, None)
     eta = f", ETA {result.eta_text}" if result.eta_text else ""
     say(
         thread_ts=thread_ts,
@@ -191,6 +201,7 @@ def do_place(ack, body, say, client):
 def do_cancel(ack, body, say):
     ack()
     thread_ts = body["actions"][0]["value"]
+    QUERIES.pop(thread_ts, None)
     if SESSIONS.pop(thread_ts, None) is not None:
         say(thread_ts=thread_ts, text=":x: Order cancelled. No money spent.")
 

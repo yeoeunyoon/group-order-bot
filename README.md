@@ -36,6 +36,21 @@ pip install -r requirements.txt
 pytest
 ```
 
+## Slack front end
+
+The group chat itself is the interface (`slack_app.py`, over Socket Mode — no
+hosting needed). `@mention` the bot to open an order in a thread, everyone
+replies with what they want, then buttons drive **Preview & Price** and
+**Place order** (the click is the human confirm). It rides the same engine as
+the CLI, so it works in demo mode with no `dd-cli` and no money.
+
+```bash
+pip install -r requirements.txt
+GOB_MODE=demo SLACK_BOT_TOKEN=xoxb-... SLACK_APP_TOKEN=xapp-... python slack_app.py
+```
+
+Full one-time setup (creating the app, scopes, tokens): see **SLACK_SETUP.md**.
+
 ## How it's built
 
 | Folder / file | What it is |

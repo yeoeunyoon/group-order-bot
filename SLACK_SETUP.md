@@ -44,11 +44,16 @@ python slack_app.py
 ## 7. Use it
 In any channel the bot is in (invite it with `/invite @Group-Order Bot`):
 
-1. Type `@Group-Order Bot` — the bot opens an order and replies in a thread.
+1. Type `@Group-Order Bot sushi` — the text after the mention is an optional
+   store hint (`sushi`, `pizza`, …). The bot opens an order and replies in a thread.
 2. Everyone **replies in that thread** with what they want, in plain language.
 3. Click **Preview & Price** — the bot builds one shared cart and shows the total.
 4. Click **Place order** — this is the human "yes." Nothing is charged before it.
 
-Still in **demo mode** (fake restaurants) until `dd-cli` is approved. To go live
-later, the only change is `export GOB_MODE=live` (plus `GOB_ALLOW_REAL_ORDERS=1`
-to actually spend) — same switch as the CLI demo.
+Defaults to **demo mode** (fake restaurants), so you can try the whole flow with
+no `dd-cli` and no money. To use the real, approved `dd-cli`:
+
+- `export GOB_MODE=live` — real search / menu / cart / preview, but checkout
+  stays **blocked** (safe to explore live pricing).
+- add `export GOB_ALLOW_REAL_ORDERS=1` — only then can **Place order** submit a
+  real, charged order. Same two-latch switch as the CLI.
