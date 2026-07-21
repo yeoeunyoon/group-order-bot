@@ -28,7 +28,7 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 import config
-from bot import OrderSession
+from bot import OrderSession, matcher
 from ddcli import DDCliError, GuardrailError, get_client
 
 logging.basicConfig(level=logging.INFO)
@@ -106,8 +106,8 @@ def open_order(event, say):
             )}},
             {"type": "actions", "elements": [
                 {"type": "button", "text": {"type": "plain_text",
-                 "text": "Preview & Price"}, "style": "primary",
-                 "action_id": "preview", "value": thread_ts},
+                 "text": "🍴 Find restaurants"}, "style": "primary",
+                 "action_id": "find_stores", "value": thread_ts},
                 {"type": "button", "text": {"type": "plain_text",
                  "text": "Cancel"}, "action_id": "cancel", "value": thread_ts},
             ]},
@@ -133,9 +133,9 @@ def collect_reply(event, client):
     )
 
 
-# --- 3. "Preview & Price" -> plan() + prepare() + preview() ------------------
-@app.action("preview")
-def do_preview(ack, body, say, client):
+# --- 3a. "Find restaurants" -> search + post a ranked shortlist -------------
+@app.action("find_stores")
+def do_find_stores(ack, body, say):
     ack()
     thread_ts = body["actions"][0]["value"]
     session = SESSIONS.get(thread_ts)
@@ -145,7 +145,45 @@ def do_preview(ack, body, say, client):
         say(thread_ts=thread_ts, text="Nobody's ordered yet — reply with a request first.")
         return
     try:
-        session.plan(search_query=QUERIES.get(thread_ts))
+        candidates = session.search_candidates(search_query=QUERIES.get(thread_ts))
+    except (DDCliError, GuardrailError) as exc:
+        say(thread_ts=thread_ts, text=f":raised_hand: Stopped before any charge: {exc}")
+        return
+    if not candidates:
+        say(thread_ts=thread_ts, text="No nearby restaurants found — try a different search.")
+        return
+
+    texts = [r.text for r in session.requests]
+    ranked = matcher.rank_stores(texts, candidates)
+    total = len(session.requests)
+
+    blocks = [{"type": "section", "text": {"type": "mrkdwn",
+               "text": "*Pick a restaurant* — each shows how many orders it can fill:"}}]
+    for store, matched in ranked:
+        eta = f" · ETA ~{store.eta_minutes} min" if store.eta_minutes else ""
+        blocks.append({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"*{store.name}* — fills {matched}/{total}{eta}"},
+            "accessory": {
+                "type": "button", "action_id": "choose_store",
+                "text": {"type": "plain_text", "text": "Choose"},
+                "value": f"{thread_ts}|{store.id}",
+                **({"style": "primary"} if matched == ranked[0][1] and matched > 0 else {}),
+            },
+        })
+    say(thread_ts=thread_ts, text="Pick a restaurant", blocks=blocks)
+
+
+# --- 3b. "Choose" a store -> build cart + prepare() + preview() --------------
+@app.action("choose_store")
+def do_choose_store(ack, body, say):
+    ack()
+    thread_ts, store_id = body["actions"][0]["value"].split("|", 1)
+    session = SESSIONS.get(thread_ts)
+    if session is None:
+        return
+    try:
+        session.select_store(store_id)
         session.prepare()
     except (DDCliError, GuardrailError) as exc:
         say(thread_ts=thread_ts, text=f":raised_hand: Stopped before any charge: {exc}")
@@ -158,7 +196,8 @@ def do_preview(ack, body, say, client):
             {"type": "section", "text": {"type": "mrkdwn",
              "text": f"```{session.preview()}```"}},
             {"type": "section", "text": {"type": "mrkdwn",
-             "text": "*Nothing is ordered yet.* A human has to click below."}},
+             "text": "*Nothing is ordered yet.* A human has to click below.\n"
+                     "_Changed your mind? Tap *Choose* on another restaurant above._"}},
             {"type": "actions", "elements": [
                 {"type": "button", "text": {"type": "plain_text",
                  "text": "Place order"}, "style": "primary",

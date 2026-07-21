@@ -58,7 +58,14 @@ def test_full_thread_flow_places_order():
     )
     assert len(slack_app.SESSIONS["T1"].requests) == 2
 
-    slack_app.do_preview(_ack, {"actions": [{"value": "T1"}]}, say, client)
+    # Find restaurants -> a shortlist is posted, candidates cached.
+    slack_app.do_find_stores(_ack, {"actions": [{"value": "T1"}]}, say)
+    session = slack_app.SESSIONS["T1"]
+    assert session.candidates, "expected candidate restaurants"
+
+    # Choose the store that fits the group -> cart is built and priced.
+    chosen = next(c for c in session.candidates if c.name == "Chipotle").id
+    slack_app.do_choose_store(_ack, {"actions": [{"value": f"T1|{chosen}"}]}, say)
     assert slack_app.SESSIONS["T1"].quote is not None
 
     slack_app.do_place(_ack, {"actions": [{"value": "T1"}], "user": {"id": "U1"}}, say, client)
@@ -76,11 +83,10 @@ def test_replies_outside_an_open_thread_are_ignored():
     assert slack_app.SESSIONS == {}
 
 
-def test_preview_with_no_requests_prompts_and_does_not_crash():
+def test_find_stores_with_no_requests_prompts_and_does_not_crash():
     say = FakeSay()
-    client = FakeClient()
     slack_app.open_order({"ts": "T2", "text": "<@U0>"}, say)
-    slack_app.do_preview(_ack, {"actions": [{"value": "T2"}]}, say, client)
+    slack_app.do_find_stores(_ack, {"actions": [{"value": "T2"}]}, say)
     assert "ordered yet" in say.texts()
 
 

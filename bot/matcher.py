@@ -68,16 +68,20 @@ def resolve_item(request: str, store: Store) -> tuple[MenuItem | None, str]:
     return best_item, note
 
 
+def rank_stores(requests: list[str], stores: list[Store]) -> list[tuple[Store, int]]:
+    """Stores paired with how many requests each can fill, best first.
+
+    Sorted by match count (desc), ties broken by faster ETA.
+    """
+    scored = [
+        (store, sum(1 for r in requests if resolve_item(r, store)[0] is not None))
+        for store in stores
+    ]
+    scored.sort(key=lambda pair: (pair[1], -pair[0].eta_minutes), reverse=True)
+    return scored
+
+
 def choose_store(requests: list[str], stores: list[Store]) -> Store | None:
     """Pick the store that can satisfy the most people (ties: faster ETA)."""
-    best_store, best_matched = None, -1
-    for store in stores:
-        matched = sum(1 for r in requests if resolve_item(r, store)[0] is not None)
-        better = matched > best_matched or (
-            matched == best_matched
-            and best_store is not None
-            and store.eta_minutes < best_store.eta_minutes
-        )
-        if better:
-            best_store, best_matched = store, matched
-    return best_store if best_matched > 0 else None
+    ranked = rank_stores(requests, stores)
+    return ranked[0][0] if ranked and ranked[0][1] > 0 else None

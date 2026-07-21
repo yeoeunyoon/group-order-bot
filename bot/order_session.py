@@ -37,6 +37,7 @@ class OrderSession:
         self.tip_cents = tip_cents
         self.max_candidates = max_candidates  # how many search hits to pull menus for
         self.requests: list[Request] = []
+        self.candidates: list = []          # nearby stores (menus loaded) to pick from
         self.cart: Cart | None = None
         self.quote: Quote | None = None
         self.unmatched: list[Request] = []
@@ -47,21 +48,21 @@ class OrderSession:
         self.requests.append(Request(person, text))
         self._invalidate()
 
-    # 2. plan --------------------------------------------------------------
-    def plan(self, search_query: str | None = None) -> Cart:
-        """Search, pick a store, build one shared cart.
+    # 2a. find candidate stores -------------------------------------------
+    def search_candidates(self, search_query: str | None = None) -> list:
+        """Search nearby and load menus, so stores can be ranked and picked.
 
-        search_query lets the group steer the store choice ("let's do sushi");
-        without it we search using everyone's request text.
+        Stores are returned (and cached on self.candidates) with menus loaded.
+        search_query steers the search ("sushi"); without it we use the
+        request text.
         """
         if not self.requests:
             raise ValueError("no requests collected yet")
-
         texts = [r.text for r in self.requests]
         stores = self.client.search_stores(search_query or " ".join(texts))
 
-        # Search results carry no menu, so populate menus on the candidates
-        # before scoring — the matcher needs real items to match against.
+        # Search results carry no menu, so populate menus on the candidates —
+        # both ranking and matching need real items to score against.
         candidates = []
         for store in stores[:self.max_candidates]:
             try:
@@ -72,12 +73,16 @@ class OrderSession:
             store.menu_id = full.menu_id
             candidates.append(store)
 
-        store = matcher.choose_store(texts, candidates)
+        self.candidates = candidates
+        self._invalidate()
+        return candidates
+
+    # 2b. pick a specific store and build the cart ------------------------
+    def select_store(self, store_id: str) -> Cart:
+        """Build one shared cart at the chosen store, matching each request."""
+        store = next((s for s in self.candidates if s.id == store_id), None)
         if store is None:
-            raise GuardrailError(
-                "No nearby store can satisfy these requests. Try a broader "
-                "search, or requests that match a real menu."
-            )
+            raise GuardrailError("That store is no longer available — search again.")
 
         cart = Cart(store=store)
         self.unmatched = []
@@ -91,13 +96,25 @@ class OrderSession:
                 req.person, req.text, item, note,
                 selected_options=options, unresolved_note=unresolved,
             ))
-
         if not cart.lines:
             raise GuardrailError("Couldn't match any request to this store's menu.")
 
         self.cart = cart
         self._invalidate()
         return cart
+
+    # 2c. plan = auto-pick (CLI convenience) ------------------------------
+    def plan(self, search_query: str | None = None) -> Cart:
+        """Search and auto-pick the best-fitting store, then build the cart."""
+        candidates = self.search_candidates(search_query)
+        texts = [r.text for r in self.requests]
+        store = matcher.choose_store(texts, candidates)
+        if store is None:
+            raise GuardrailError(
+                "No nearby store can satisfy these requests. Try a broader "
+                "search, or requests that match a real menu."
+            )
+        return self.select_store(store.id)
 
     # 3. prepare (price it — no charge) ------------------------------------
     def prepare(self) -> Quote:

@@ -106,6 +106,40 @@ def test_confirm_requires_a_prepared_quote():
         session.confirm()
 
 
+def test_search_candidates_then_select_store():
+    session = make_session()
+    candidates = session.search_candidates(search_query="mexican")
+    assert candidates, "expected candidate stores"
+    # Every candidate has its menu loaded so it can be ranked/matched.
+    assert all(c.menu for c in candidates)
+
+    chipotle = next(c for c in candidates if c.name == "Chipotle")
+    cart = session.select_store(chipotle.id)
+    assert cart.store.name == "Chipotle"
+    assert len(cart.lines) == 2
+    session.prepare()
+    session.confirm()
+    assert session.checkout().status == "placed"
+
+
+def test_select_unknown_store_is_rejected():
+    session = make_session()
+    session.search_candidates()
+    with pytest.raises(GuardrailError, match="no longer available"):
+        session.select_store("store_does_not_exist")
+
+
+def test_rank_stores_orders_by_match_count():
+    from bot import matcher
+    from ddcli.mock import MockDDClient
+    client = MockDDClient()
+    stores = [client.get_menu(s.id) for s in client.search_stores("food")]
+    ranked = matcher.rank_stores(["chicken burrito", "steak bowl"], stores)
+    # Chipotle fills both; it must rank first with a count of 2.
+    assert ranked[0][0].name == "Chipotle"
+    assert ranked[0][1] == 2
+
+
 def test_happy_path_places_order():
     session = priced()
     session.confirm()
