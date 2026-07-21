@@ -46,12 +46,17 @@ class OrderSession:
         self._invalidate()
 
     # 2. plan --------------------------------------------------------------
-    def plan(self) -> Cart:
+    def plan(self, search_query: str | None = None) -> Cart:
+        """Search, pick a store, build one shared cart.
+
+        search_query lets the group steer the store choice ("let's do sushi");
+        without it we search using everyone's request text.
+        """
         if not self.requests:
             raise ValueError("no requests collected yet")
 
         texts = [r.text for r in self.requests]
-        stores = self.client.search_stores(" ".join(texts))
+        stores = self.client.search_stores(search_query or " ".join(texts))
         store = matcher.choose_store(texts, stores)
         if store is None:
             raise GuardrailError("No nearby store can satisfy these requests.")
