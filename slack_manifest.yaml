@@ -1,0 +1,25 @@
+display_information:
+  name: Group-Order Bot
+  description: Order DoorDash as a group, in plain language, with a confirm-before-checkout gate.
+features:
+  bot_user:
+    display_name: Group-Order Bot
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read
+      - chat:write
+      - channels:history
+      - groups:history
+      - reactions:write
+      - users:read
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_mention
+      - message.channels
+      - message.groups
+  socket_mode_enabled: true
+  org_deploy_enabled: false
+  token_rotation_enabled: false
