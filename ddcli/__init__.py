@@ -3,7 +3,7 @@
 from .base import DDClient
 from .errors import DDCliError, GuardrailError
 from .factory import get_client
-from .models import Cart, CartLine, MenuItem, OrderResult, Store, dollars
+from .models import Cart, CartLine, MenuItem, OrderResult, Quote, Store, dollars
 
 __all__ = [
     "DDClient",
@@ -14,6 +14,7 @@ __all__ = [
     "CartLine",
     "MenuItem",
     "OrderResult",
+    "Quote",
     "Store",
     "dollars",
 ]

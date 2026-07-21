@@ -1,9 +1,9 @@
 """Plain data shapes passed around the app.
 
 These are deliberately simple containers — no DoorDash logic lives here, just
-the nouns everyone agrees on: a Store, a MenuItem, a Cart, an OrderResult.
-The mock backend and the real dd-cli backend both produce these same shapes,
-which is what lets the rest of the app not care which one is running.
+the nouns everyone agrees on: a Store, a MenuItem, a Cart, a Quote, an
+OrderResult. The mock backend and the real dd-cli backend both produce these
+same shapes, which is what lets the rest of the app not care which one runs.
 """
 
 from dataclasses import dataclass, field
@@ -16,7 +16,7 @@ def dollars(cents: int) -> str:
 
 @dataclass
 class MenuItem:
-    id: str
+    id: str              # real dd-cli item_id, e.g. "23266866023"
     name: str
     price_cents: int
     description: str = ""
@@ -24,12 +24,13 @@ class MenuItem:
 
 @dataclass
 class Store:
-    id: str
+    id: str              # real dd-cli store_id, e.g. "928163"
     name: str
     cuisine: str
     eta_minutes: int
     delivery_fee_cents: int
     menu: list[MenuItem] = field(default_factory=list)
+    menu_id: str = ""    # real dd-cli menu_id, needed to add items to a cart
 
 
 @dataclass
@@ -55,8 +56,25 @@ class Cart:
 
 
 @dataclass
+class Quote:
+    """The result of pricing a cart WITHOUT charging (dd-cli `order preview`).
+
+    `handle` is the thing the checkout step needs to place the order — the
+    real cart_uuid in live mode, a fake id in demo mode. `total_cents` /
+    `total_display` are the authoritative numbers a human confirms against.
+    """
+    handle: str
+    store_name: str
+    total_cents: int     # authoritative total incl. fees/taxes (best-effort in live)
+    total_display: str   # currency-formatted total straight from DoorDash
+    eta_text: str = ""
+    raw: dict | None = None  # the full preview JSON, for reference/debugging
+
+
+@dataclass
 class OrderResult:
     order_id: str
-    status: str          # e.g. "placed", "confirmed"
+    status: str          # e.g. "placed", "pending", "confirmed"
     total_cents: int
-    eta_minutes: int
+    total_display: str
+    eta_text: str = ""
