@@ -22,11 +22,12 @@ only spots to adjust if a response shape differs in practice.
 
 import json
 import os
+import re
 import subprocess
 
 from .base import DDClient
 from .errors import DDCliError, GuardrailError
-from .models import Cart, MenuItem, ModifierOption, OrderResult, Quote, Store
+from .models import Cart, MenuItem, OrderResult, Quote, Store
 
 
 class RealDDClient(DDClient):
@@ -56,21 +57,37 @@ class RealDDClient(DDClient):
             raise DDCliError(msg or f"dd-cli {' '.join(args)} failed")
 
         try:
-            return json.loads(proc.stdout)
+            parsed = json.loads(proc.stdout)
         except json.JSONDecodeError as exc:
             raise DDCliError(
                 f"could not read dd-cli output as JSON:\n{proc.stdout[:500]}"
             ) from exc
 
+        data = _unwrap_envelope(parsed)
+        if isinstance(data, dict) and data.get("success") is False:
+            raise DDCliError(data.get("message") or "dd-cli reported success=false")
+        return data
+
     # --- read-only (no charge) ---------------------------------------------
 
+    def default_location(self) -> tuple[float | None, float | None]:
+        """Lat/lng of the consumer's default saved DoorDash address, if any."""
+        data = self._run("address", "list")
+        for addr in _as_list(data, "addresses"):
+            if addr.get("is_default"):
+                return addr.get("lat"), addr.get("lng")
+        return None, None
+
     def search_stores(self, query, lat=None, lng=None, limit=5):
+        # "Near me" with no coords → resolve the consumer's default address
+        # rather than letting dd-cli fall back to a default region.
+        if lat is None and lng is None:
+            lat, lng = self.default_location()
         args = ["search", "-q", query, "--limit", str(limit)]
         if lat is not None:
             args += ["--lat", str(lat)]
         if lng is not None:
             args += ["--lng", str(lng)]
-        # If no lat/lng, dd-cli falls back to env DD_LAT/DD_LNG then a default.
         data = self._run(*args)
         return [self._parse_search_store(s) for s in _as_list(data, "stores")]
 
@@ -121,11 +138,17 @@ class RealDDClient(DDClient):
         quote = prev.get("quote", prev)
         total = quote.get("net_total_before_tip", {})
         delivery = quote.get("delivery_availability", {})
+        total_display = total.get("display_string", "")
+        # Parse the total from the formatted string to sidestep any
+        # cents-vs-dollars ambiguity in the raw unit_amount.
+        total_cents = _money_to_cents(total_display)
+        if total_cents is None:
+            total_cents = int(total.get("unit_amount", 0) or 0)
         return Quote(
             handle=str(cart_uuid),
             store_name=cart.store.name,
-            total_cents=int(total.get("unit_amount", 0) or 0),
-            total_display=total.get("display_string", ""),
+            total_cents=total_cents,
+            total_display=total_display,
             eta_text=delivery.get("asap_minutes_range_string", ""),
             raw=prev,
         )
@@ -171,27 +194,59 @@ class RealDDClient(DDClient):
 
     @staticmethod
     def _parse_menu_item(raw: dict) -> MenuItem:
-        # Best-effort: some catalogs inline modifiers on the menu item; others
-        # require `restaurant-item-details`. If options aren't present here, the
-        # app surfaces the note as "not applied" rather than guessing an id.
-        opts_raw = _as_list(raw, "nested_options") or _as_list(raw, "options")
+        # `price` is a float in DOLLARS (e.g. 4.8 -> $4.80). Modifiers are NOT
+        # inline on the menu item — when raw["has_modifiers"] is true they must
+        # be fetched via `restaurant-item-details`. Until that's wired, options
+        # stay empty and any note is surfaced as "not applied" (honest, not
+        # silently dropped). TODO(modifiers): fetch options for has_modifiers items.
         return MenuItem(
             id=str(raw.get("item_id", raw.get("id", ""))),
             name=raw.get("name", raw.get("item_name", "")),
-            price_cents=int(raw.get("price", raw.get("price_cents", 0)) or 0),
+            price_cents=_dollars_to_cents(raw.get("price")),
             description=raw.get("description", ""),
-            options=[
-                ModifierOption(
-                    id=str(o.get("id", "")),
-                    name=o.get("name", ""),
-                    price_cents=int(o.get("price", o.get("price_cents", 0)) or 0),
-                )
-                for o in opts_raw
-                if o.get("id") and o.get("name")
-            ],
         )
 
 
 def _as_list(data: dict, key: str) -> list:
     value = data.get(key, [])
     return value if isinstance(value, list) else []
+
+
+def _dollars_to_cents(price) -> int:
+    """dd-cli menu prices are floats in dollars (4.8 -> 480 cents)."""
+    try:
+        return round(float(price) * 100)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _money_to_cents(display: str) -> int | None:
+    """Parse a formatted money string like '$45.29' or 'CA$10.00' to cents."""
+    if not display:
+        return None
+    cleaned = re.sub(r"[^0-9.\-]", "", display)
+    try:
+        return round(float(cleaned) * 100)
+    except (TypeError, ValueError):
+        return None
+
+
+def _unwrap_envelope(parsed):
+    """dd-cli wraps results in an MCP-style envelope. Pull out the real data.
+
+    Shape: {"content": [{"type":"text","text":"<stringified JSON>"}],
+            "structuredContent": {<the actual fields: stores/items/...>}}
+    Prefer structuredContent; fall back to parsing the content[].text JSON.
+    """
+    if not isinstance(parsed, dict):
+        return parsed
+    inner = parsed.get("structuredContent")
+    if isinstance(inner, dict):
+        return inner
+    for part in parsed.get("content", []) or []:
+        if isinstance(part, dict) and part.get("type") == "text":
+            try:
+                return json.loads(part["text"])
+            except (json.JSONDecodeError, KeyError, TypeError):
+                continue
+    return parsed

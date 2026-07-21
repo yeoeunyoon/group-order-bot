@@ -1,4 +1,7 @@
-# Runtime: none — the demo runs on the Python standard library alone.
+# Runtime: none for the CLI demo — it runs on the standard library alone.
+
+# Slack front end (slack_app.py):
+slack_bolt>=1.18
 
 # Dev / test:
 pytest>=8.0
