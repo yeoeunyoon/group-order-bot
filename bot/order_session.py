@@ -64,7 +64,11 @@ class OrderSession:
             if item is None:
                 self.unmatched.append(req)
                 continue
-            cart.lines.append(CartLine(req.person, req.text, item, note))
+            options, unresolved = matcher.resolve_options(note, item)
+            cart.lines.append(CartLine(
+                req.person, req.text, item, note,
+                selected_options=options, unresolved_note=unresolved,
+            ))
 
         if not cart.lines:
             raise GuardrailError("Couldn't match any request to this store's menu.")
@@ -89,8 +93,11 @@ class OrderSession:
         eta = f"  (ETA {q.eta_text})" if q.eta_text else ""
         lines = [f"Order preview — {q.store_name}{eta}", ""]
         for line in c.lines:
-            note = f"  ·  {line.note}" if line.note else ""
-            lines.append(f"  {line.person:<8} {line.item.name:<22}{note}")
+            mods = ", ".join(o.name for o in line.selected_options)
+            mods = f"  ({mods})" if mods else ""
+            lines.append(f"  {line.person:<8} {line.item.name:<22}{mods}")
+            if line.unresolved_note:
+                lines.append(f"           ⚠ note not applied: \"{line.unresolved_note}\"")
         total = q.total_display or dollars(q.total_cents)
         lines += ["", f"  {'TOTAL (incl. fees & tax)':<24} {total:>10}"]
         if self.unmatched:

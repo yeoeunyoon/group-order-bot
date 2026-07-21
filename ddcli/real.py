@@ -26,7 +26,7 @@ import subprocess
 
 from .base import DDClient
 from .errors import DDCliError, GuardrailError
-from .models import Cart, MenuItem, OrderResult, Quote, Store
+from .models import Cart, MenuItem, ModifierOption, OrderResult, Quote, Store
 
 
 class RealDDClient(DDClient):
@@ -93,10 +93,15 @@ class RealDDClient(DDClient):
                 "missing menu_id — call get_menu(store_id) so the cart knows "
                 "which menu to add items from."
             )
-        items = [
-            {"item_id": line.item.id, "item_name": line.item.name, "quantity": 1}
-            for line in cart.lines
-        ]
+        items = []
+        for line in cart.lines:
+            entry = {"item_id": line.item.id, "item_name": line.item.name, "quantity": 1}
+            if line.selected_options:
+                entry["nested_options"] = [
+                    {"id": o.id, "name": o.name, "quantity": 1}
+                    for o in line.selected_options
+                ]
+            items.append(entry)
         add = self._run(
             "cart", "add-items",
             "--store-id", cart.store.id,
@@ -166,11 +171,24 @@ class RealDDClient(DDClient):
 
     @staticmethod
     def _parse_menu_item(raw: dict) -> MenuItem:
+        # Best-effort: some catalogs inline modifiers on the menu item; others
+        # require `restaurant-item-details`. If options aren't present here, the
+        # app surfaces the note as "not applied" rather than guessing an id.
+        opts_raw = _as_list(raw, "nested_options") or _as_list(raw, "options")
         return MenuItem(
             id=str(raw.get("item_id", raw.get("id", ""))),
             name=raw.get("name", raw.get("item_name", "")),
             price_cents=int(raw.get("price", raw.get("price_cents", 0)) or 0),
             description=raw.get("description", ""),
+            options=[
+                ModifierOption(
+                    id=str(o.get("id", "")),
+                    name=o.get("name", ""),
+                    price_cents=int(o.get("price", o.get("price_cents", 0)) or 0),
+                )
+                for o in opts_raw
+                if o.get("id") and o.get("name")
+            ],
         )
 
 

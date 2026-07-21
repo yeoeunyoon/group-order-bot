@@ -8,7 +8,7 @@ calls real.py instead — see factory.py.
 import itertools
 
 from .base import DDClient
-from .models import Cart, MenuItem, OrderResult, Quote, Store, dollars
+from .models import Cart, MenuItem, ModifierOption, OrderResult, Quote, Store, dollars
 
 # A tiny pretend universe of nearby restaurants.
 _CATALOG: list[Store] = [
@@ -34,10 +34,15 @@ _CATALOG: list[Store] = [
         delivery_fee_cents=299,
         menu_id="menu_chipotle",
         menu=[
-            MenuItem("c1", "Chicken Burrito", 1195, "Flour tortilla, rice, beans"),
+            MenuItem("c1", "Chicken Burrito", 1195, "Flour tortilla, rice, beans",
+                     options=[
+                         ModifierOption("c1o1", "No Onions", 0),
+                         ModifierOption("c1o2", "Extra Chicken", 250),
+                     ]),
             MenuItem("c2", "Steak Bowl", 1395, "No tortilla, extra steak"),
             MenuItem("c3", "Veggie Tacos", 995, "Three soft tacos, fajita veg"),
-            MenuItem("c4", "Chips & Guac", 495, "Fresh guacamole"),
+            MenuItem("c4", "Chips & Guac", 495, "Fresh guacamole",
+                     options=[ModifierOption("c4o1", "Extra Guac", 150)]),
         ],
     ),
     Store(

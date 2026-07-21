@@ -15,11 +15,20 @@ def dollars(cents: int) -> str:
 
 
 @dataclass
+class ModifierOption:
+    """A customization choice on a menu item (dd-cli nested_options entry)."""
+    id: str              # real dd-cli option id
+    name: str            # e.g. "No Onions", "Extra Guac"
+    price_cents: int = 0
+
+
+@dataclass
 class MenuItem:
     id: str              # real dd-cli item_id, e.g. "23266866023"
     name: str
     price_cents: int
     description: str = ""
+    options: list["ModifierOption"] = field(default_factory=list)
 
 
 @dataclass
@@ -39,6 +48,12 @@ class CartLine:
     request: str         # the raw human text, e.g. "chicken burrito, no onions"
     item: MenuItem       # the real menu item it was matched to
     note: str = ""       # special instructions pulled from the request
+    selected_options: list["ModifierOption"] = field(default_factory=list)
+    unresolved_note: str = ""  # note text we could NOT map to a real modifier
+
+    @property
+    def line_cents(self) -> int:
+        return self.item.price_cents + sum(o.price_cents for o in self.selected_options)
 
 
 @dataclass
@@ -48,7 +63,7 @@ class Cart:
 
     @property
     def subtotal_cents(self) -> int:
-        return sum(line.item.price_cents for line in self.lines)
+        return sum(line.line_cents for line in self.lines)
 
     @property
     def total_cents(self) -> int:

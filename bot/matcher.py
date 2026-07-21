@@ -10,9 +10,13 @@ below returning (item, note) and a chosen store.
 
 import re
 
-from ddcli.models import MenuItem, Store
+from ddcli.models import MenuItem, ModifierOption, Store
 
 _STOPWORDS = {"a", "an", "the", "with", "and", "some", "please", "of", "for", "me"}
+# Words that signal a modifier but aren't the THING being modified. Excluded
+# when matching a note to an option, so "extra guac" keys on "guac" (not "extra")
+# and doesn't collide with an unrelated "Extra Cheese" option.
+_MODIFIER_WORDS = {"no", "without", "extra", "add", "light", "easy", "hold", "on", "side"}
 _NOTE_RE = re.compile(r"\b(no|without|extra|add)\b.*", re.IGNORECASE)
 
 
@@ -25,6 +29,28 @@ def extract_note(request: str) -> str:
 def _tokens(text: str) -> set[str]:
     words = re.findall(r"[a-z]+", text.lower())
     return {w for w in words if w not in _STOPWORDS and len(w) > 2}
+
+
+def _content_tokens(text: str) -> set[str]:
+    """Tokens that name a thing — stopwords AND modifier words removed."""
+    words = re.findall(r"[a-z]+", text.lower())
+    return {w for w in words if len(w) > 2 and w not in _STOPWORDS and w not in _MODIFIER_WORDS}
+
+
+def resolve_options(note: str, item: MenuItem) -> tuple[list[ModifierOption], str]:
+    """Map a free-text note to this item's real modifier options.
+
+    Returns (selected options, leftover note we could NOT map). Keeping the
+    leftover lets the app be honest in the preview instead of silently
+    dropping instructions dd-cli can't apply.
+    """
+    if not note or not item.options:
+        return [], note
+    wanted = _content_tokens(note)
+    if not wanted:
+        return [], note
+    selected = [opt for opt in item.options if _content_tokens(opt.name) & wanted]
+    return selected, ("" if selected else note)
 
 
 def resolve_item(request: str, store: Store) -> tuple[MenuItem | None, str]:

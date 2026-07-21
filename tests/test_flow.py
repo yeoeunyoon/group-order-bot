@@ -44,6 +44,31 @@ def test_note_is_extracted_from_request():
     assert "no onions" in burrito.note
 
 
+def test_note_maps_to_a_real_modifier_option():
+    session = make_session()
+    session.plan()
+    burrito = next(l for l in session.cart.lines if l.person == "Yeoeun")
+    assert [o.name for o in burrito.selected_options] == ["No Onions"]
+    assert burrito.unresolved_note == ""  # fully mapped, nothing dropped
+
+
+def test_priced_modifier_adds_to_total():
+    session = OrderSession(client=MockDDClient(), spend_limit_cents=LIMIT)
+    session.collect("Alex", "chips and guac, extra guac")  # +$1.50 option
+    session.plan()
+    session.prepare()
+    assert session.quote.total_cents == 495 + 150 + 299  # item + Extra Guac + delivery
+
+
+def test_unmappable_note_is_flagged_not_dropped():
+    session = OrderSession(client=MockDDClient(), spend_limit_cents=LIMIT)
+    session.collect("Sam", "steak bowl, no cilantro")  # Steak Bowl has no options
+    session.plan()
+    line = session.cart.lines[0]
+    assert line.selected_options == []
+    assert "no cilantro" in line.unresolved_note
+
+
 def test_prepare_prices_without_charging():
     session = priced()
     assert session.quote is not None
