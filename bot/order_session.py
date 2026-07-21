@@ -30,10 +30,12 @@ class Request:
 
 
 class OrderSession:
-    def __init__(self, client: DDClient, spend_limit_cents: int, tip_cents: int = 0):
+    def __init__(self, client: DDClient, spend_limit_cents: int, tip_cents: int = 0,
+                 max_candidates: int = 5):
         self.client = client
         self.spend_limit_cents = spend_limit_cents
         self.tip_cents = tip_cents
+        self.max_candidates = max_candidates  # how many search hits to pull menus for
         self.requests: list[Request] = []
         self.cart: Cart | None = None
         self.quote: Quote | None = None
@@ -57,11 +59,26 @@ class OrderSession:
 
         texts = [r.text for r in self.requests]
         stores = self.client.search_stores(search_query or " ".join(texts))
-        store = matcher.choose_store(texts, stores)
-        if store is None:
-            raise GuardrailError("No nearby store can satisfy these requests.")
 
-        store = self.client.get_menu(store.id)
+        # Search results carry no menu, so populate menus on the candidates
+        # before scoring — the matcher needs real items to match against.
+        candidates = []
+        for store in stores[:self.max_candidates]:
+            try:
+                full = self.client.get_menu(store.id)
+            except Exception:
+                continue
+            store.menu = full.menu
+            store.menu_id = full.menu_id
+            candidates.append(store)
+
+        store = matcher.choose_store(texts, candidates)
+        if store is None:
+            raise GuardrailError(
+                "No nearby store can satisfy these requests. Try a broader "
+                "search, or requests that match a real menu."
+            )
+
         cart = Cart(store=store)
         self.unmatched = []
         for req in self.requests:
